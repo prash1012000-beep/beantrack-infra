@@ -1,0 +1,68 @@
+name: Deploy to ECS (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      aws_region:
+        required: true
+        type: string
+      role_to_assume:
+        description: ARN of the GitHub-deploy IAM role (ecs-cluster module output).
+        required: true
+        type: string
+      cluster:
+        description: ECS cluster name (ecs-cluster module output `cluster_name`).
+        required: true
+        type: string
+      service:
+        description: ECS service name (ecs-fargate-service module output `service_name`).
+        required: true
+        type: string
+      task_definition_family:
+        description: Task definition family (ecs-fargate-service module output `task_definition_family`).
+        required: true
+        type: string
+      container_name:
+        description: Name of the container within the task definition to update the image for.
+        required: true
+        type: string
+      image:
+        description: Full image URI to deploy, e.g. the `build-and-push` reusable workflow's `image` output.
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.role_to_assume }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Fetch current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ inputs.task_definition_family }}" \
+            --query taskDefinition \
+            > task-definition.json
+
+      - name: Render new image into the task definition
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ inputs.container_name }}
+          image: ${{ inputs.image }}
+
+      - name: Deploy (registers a new revision, updates the service, waits for stability)
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          cluster: ${{ inputs.cluster }}
+          service: ${{ inputs.service }}
+          wait-for-service-stability: true

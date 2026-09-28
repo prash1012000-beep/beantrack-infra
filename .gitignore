@@ -1,0 +1,10 @@
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Real values (github_org, etc.) - commit only the .example files
+**/terraform.tfvars
+**/*.auto.tfvars

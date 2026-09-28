@@ -1,0 +1,56 @@
+name: Build and push image (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      aws_region:
+        required: true
+        type: string
+      role_to_assume:
+        description: ARN of the GitHub-deploy IAM role (ecs-cluster module output).
+        required: true
+        type: string
+      ecr_repository:
+        description: ECR repository name (ecs-fargate-service module output `ecr_repository_name`).
+        required: true
+        type: string
+      dockerfile_context:
+        description: Build context passed to `docker build`.
+        required: false
+        type: string
+        default: "."
+    outputs:
+      image:
+        description: Full image URI (repo:tag) that was pushed.
+        value: ${{ jobs.build.outputs.image }}
+
+permissions:
+  id-token: write # required for OIDC -> AssumeRoleWithWebIdentity
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.role_to_assume }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr-login
+
+      - name: Build and push
+        id: image
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          REPOSITORY: ${{ inputs.ecr_repository }}
+          TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$REGISTRY/$REPOSITORY:$TAG" "${{ inputs.dockerfile_context }}"
+          docker push "$REGISTRY/$REPOSITORY:$TAG"
+          echo "image=$REGISTRY/$REPOSITORY:$TAG" >> "$GITHUB_OUTPUT"

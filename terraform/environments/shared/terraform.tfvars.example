@@ -1,0 +1,6 @@
+aws_region = "us-east-1"
+name       = "beantrack"
+azs        = ["us-east-1a", "us-east-1b"]
+
+github_org   = "your-github-org-or-username"
+github_repos = ["beantrack-backend"]
