@@ -11,7 +11,7 @@ terraform {
   # in after running bootstrap once (terraform init doesn't support variable
   # interpolation in the backend block).
   backend "s3" {
-    bucket         = "beantrack-tfstate-REPLACE_WITH_ACCOUNT_ID"
+    bucket         = "beantrack-tfstate-126862223873"
     key            = "shared/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "beantrack-tfstate-lock"
