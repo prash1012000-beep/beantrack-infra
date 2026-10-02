@@ -41,10 +41,18 @@ data "aws_iam_policy_document" "github_trust" {
     # workflow further gates *which* ref can reach production via GitHub
     # Environments' manual-approval rule, so this doesn't need to be
     # branch-scoped too.
+    #
+    # Matches GitHub's extended-subject-claim format
+    # (repo:<org>@<owner_id>/<repo>@<repo_id>:ref:...), confirmed from a
+    # real token - plain repo:<org>/<repo>:* does NOT match this and fails
+    # AssumeRoleWithWebIdentity with a generic "not authorized" error.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = [for repo in var.github_repos : "repo:${var.github_org}/${repo}:*"]
+      values = [
+        for repo in var.github_repos :
+        "repo:${var.github_org}@${var.github_owner_id}/${repo.name}@${repo.id}:*"
+      ]
     }
   }
 }

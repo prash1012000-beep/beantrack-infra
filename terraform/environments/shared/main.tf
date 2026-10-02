@@ -12,9 +12,10 @@ module "networking" {
 module "ecs_cluster" {
   source = "../../modules/ecs-cluster"
 
-  name         = var.name
-  github_org   = var.github_org
-  github_repos = var.github_repos
+  name            = var.name
+  github_org      = var.github_org
+  github_owner_id = var.github_owner_id
+  github_repos    = var.github_repos
 }
 
 output "vpc_id" {

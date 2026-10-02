@@ -19,8 +19,15 @@ variable "github_org" {
   description = "GitHub org/user that owns the service repos."
 }
 
+variable "github_owner_id" {
+  type        = string
+  description = "Numeric GitHub id of github_org - see ecs-cluster module's variables.tf for why this is required."
+}
+
 variable "github_repos" {
-  type        = list(string)
-  description = "Service repos allowed to assume the deploy role. Add a new entry when onboarding a new service."
-  default     = ["beantrack-backend"]
+  type = list(object({
+    name = string
+    id   = string
+  }))
+  description = "Service repos (name + numeric GitHub repository id) allowed to assume the deploy role. Add a new entry when onboarding a new service."
 }

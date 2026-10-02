@@ -2,5 +2,13 @@ aws_region = "us-east-1"
 name       = "beantrack"
 azs        = ["us-east-1a", "us-east-1b"]
 
-github_org   = "your-github-org-or-username"
-github_repos = ["beantrack-backend"]
+# Find these numeric ids via:
+#   curl https://api.github.com/users/your-github-org-or-username        -> .id
+#   curl https://api.github.com/repos/your-github-org-or-username/<repo> -> .id
+# (or read owner_id/repository_id straight off a real OIDC token - see
+# ecs-cluster module's variables.tf for why these are required at all.)
+github_org      = "your-github-org-or-username"
+github_owner_id = "00000000"
+github_repos = [
+  { name = "beantrack-backend", id = "00000000" },
+]
