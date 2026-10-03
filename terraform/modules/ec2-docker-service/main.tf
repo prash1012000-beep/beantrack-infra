@@ -139,7 +139,11 @@ resource "aws_instance" "this" {
 }
 
 resource "aws_lb_target_group" "this" {
-  name        = local.full_name
+  # Suffixed, not local.full_name bare - the Fargate module used that exact
+  # name, and its target group is still alive in AWS (state rm doesn't
+  # destroy), so the bare name collides. Both can coexist under their own
+  # names; only one has a listener rule pointed at it at a time.
+  name        = "${local.full_name}-ec2"
   port        = var.container_port
   protocol    = "HTTP"
   vpc_id      = var.vpc_id
