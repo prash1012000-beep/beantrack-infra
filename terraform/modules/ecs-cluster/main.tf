@@ -91,6 +91,9 @@ data "aws_iam_policy_document" "github_deploy" {
     resources = ["arn:aws:ecr:*:*:repository/${var.name}-*"]
   }
 
+  # Kept active (not just left in state) even while EC2 is the deploy
+  # target - costs nothing to leave granted, and switching back to the
+  # ecs-fargate-service module later needs these again.
   statement {
     sid    = "ECSDeploy"
     effect = "Allow"
@@ -101,6 +104,23 @@ data "aws_iam_policy_document" "github_deploy" {
       "ecs:UpdateService",
     ]
     resources = ["*"] # ECS task-def/service actions don't support resource-level scoping this granularly
+  }
+
+  # EC2/SSM deploy path: send the deploy.sh command to the instance and
+  # poll for its result. SSM doesn't support resource-level scoping for
+  # SendCommand's target instances via a condition that's practical here,
+  # so this is account-wide for the two read-style describe calls and the
+  # document itself; the actual command text (which script, which image)
+  # is controlled entirely by the calling workflow, not by this policy.
+  statement {
+    sid    = "SSMDeploy"
+    effect = "Allow"
+    actions = [
+      "ssm:SendCommand",
+      "ssm:GetCommandInvocation",
+      "ssm:ListCommandInvocations",
+    ]
+    resources = ["*"]
   }
 
   statement {

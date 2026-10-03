@@ -1,0 +1,84 @@
+#!/bin/bash
+set -euo pipefail
+
+dnf install -y docker jq
+systemctl enable --now docker
+
+APP_DIR=/opt/${service_name}
+mkdir -p "$APP_DIR"
+
+# Secret ARNs + how to extract each one's value, resolved fresh at boot and
+# on every deploy (not baked into the AMI/instance config) - jsonencode()
+# handles all the quoting, so this is the only place that needs an actual
+# Terraform value, not hand-escaped shell.
+cat > "$APP_DIR/secrets-manifest.json" <<'MANIFEST'
+${secrets_manifest_json}
+MANIFEST
+
+cat > "$APP_DIR/resolve-secrets.sh" <<'RESOLVE'
+#!/bin/bash
+set -euo pipefail
+APP_DIR=/opt/${service_name}
+: > "$APP_DIR/secrets.env"
+jq -c '.[]' "$APP_DIR/secrets-manifest.json" | while read -r entry; do
+  ENV_NAME=$(echo "$entry" | jq -r '.env_name')
+  SECRET_ARN=$(echo "$entry" | jq -r '.secret_arn')
+  JQ_FILTER=$(echo "$entry" | jq -r '.jq_filter')
+  RAW=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" --region ${region} --query SecretString --output text)
+  if [ -n "$JQ_FILTER" ] && [ "$JQ_FILTER" != "." ]; then
+    VALUE=$(echo "$RAW" | jq -r "$JQ_FILTER")
+  else
+    VALUE="$RAW"
+  fi
+  echo "$ENV_NAME=$VALUE" >> "$APP_DIR/secrets.env"
+done
+RESOLVE
+chmod +x "$APP_DIR/resolve-secrets.sh"
+
+cat > "$APP_DIR/app.env" <<'APPENV'
+${environment_env_lines}
+APPENV
+
+# Regenerates the whole systemd unit (image baked directly into ExecStart,
+# not indirected through an EnvironmentFile) so there's no systemd-level
+# variable substitution to get wrong - just plain bash variable expansion
+# in this one script, run fresh on every deploy.
+cat > "$APP_DIR/deploy.sh" <<'DEPLOY'
+#!/bin/bash
+set -euo pipefail
+APP_DIR=/opt/${service_name}
+IMAGE="$1"
+
+"$APP_DIR/resolve-secrets.sh"
+
+REGISTRY="$${IMAGE%%/*}"
+aws ecr get-login-password --region ${region} | docker login --username AWS --password-stdin "$REGISTRY"
+docker pull "$IMAGE"
+
+cat > /etc/systemd/system/${service_name}.service <<UNIT
+[Unit]
+Description=${service_name} container
+After=docker.service
+Requires=docker.service
+
+[Service]
+ExecStartPre=-/usr/bin/docker stop ${service_name}
+ExecStartPre=-/usr/bin/docker rm ${service_name}
+ExecStart=/usr/bin/docker run --name ${service_name} --rm -p ${container_port}:${container_port} --env-file $APP_DIR/app.env --env-file $APP_DIR/secrets.env $IMAGE
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable ${service_name}.service
+systemctl restart ${service_name}.service
+DEPLOY
+chmod +x "$APP_DIR/deploy.sh"
+
+# First boot: start with the placeholder image so the service comes up
+# healthy-ish immediately, same role as the Fargate module's placeholder
+# image default - the real image arrives on the first actual deploy.
+"$APP_DIR/deploy.sh" "${initial_image}"

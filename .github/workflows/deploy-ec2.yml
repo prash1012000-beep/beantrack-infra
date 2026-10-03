@@ -1,0 +1,70 @@
+name: Deploy to EC2 via SSM (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      aws_region:
+        required: true
+        type: string
+      role_to_assume:
+        description: ARN of the GitHub-deploy IAM role (ecs-cluster module output).
+        required: true
+        type: string
+      instance_id:
+        description: EC2 instance id (ec2-docker-service module output `instance_id`).
+        required: true
+        type: string
+      service_name:
+        description: Must match the ec2-docker-service module's `service_name` - used to build /opt/<service_name>/deploy.sh.
+        required: true
+        type: string
+      image:
+        description: Full image URI to deploy, e.g. the `build-and-push` reusable workflow's `image` output.
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.role_to_assume }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Run deploy.sh on the instance via SSM
+        run: |
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "${{ inputs.instance_id }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters commands="/opt/${{ inputs.service_name }}/deploy.sh ${{ inputs.image }}" \
+            --query Command.CommandId --output text)
+          echo "command_id=$COMMAND_ID" >> "$GITHUB_ENV"
+
+          # SSM has no long-poll wait for a single command's terminal state
+          # short of `command-executed`, which itself needs the plugin
+          # installed on some CLI versions - poll directly instead.
+          for i in $(seq 1 60); do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "${{ inputs.instance_id }}" \
+              --query Status --output text 2>/dev/null || echo "Pending")
+            if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
+              break
+            fi
+            sleep 5
+          done
+
+          echo "--- stdout ---"
+          aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "${{ inputs.instance_id }}" --query StandardOutputContent --output text
+          echo "--- stderr ---"
+          aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "${{ inputs.instance_id }}" --query StandardErrorContent --output text
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "deploy.sh did not succeed (status: $STATUS)"
+            exit 1
+          fi
